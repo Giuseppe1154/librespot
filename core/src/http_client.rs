@@ -160,7 +160,11 @@ impl HttpClient {
             Some(proxy_url) => Proxy::new(Intercept::All, proxy_url.to_string().parse()?),
             None => Proxy::new(Intercept::None, Uri::from_static("0.0.0.0")),
         };
-        let proxy_connector = ProxyConnector::from_proxy(https_connector, proxy)?;
+        // Spotifree fork: from_proxy builds its own TLS config from the *system* root CAs, which iOS
+        // does not expose — it failed with "no valid native root CA certificates found" even though the
+        // connector above already carries compiled-in roots. The unsecured variant skips that config;
+        // it only affects TLS towards a proxy, and the dummy proxy intercepts nothing.
+        let proxy_connector = ProxyConnector::from_proxy_unsecured(https_connector, proxy);
 
         let client = Client::builder(TokioExecutor::new())
             .http2_adaptive_window(true)
