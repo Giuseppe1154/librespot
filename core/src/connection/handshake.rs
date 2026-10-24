@@ -116,9 +116,11 @@ where
             "x86_64" => Platform::PLATFORM_FREEBSD_X86_64,
             _ => Platform::PLATFORM_FREEBSD_X86,
         },
+        // Spotify's access points reject the real iPhone platform with TryAnotherAP (same as Android,
+        // librespot PR #1403), so present as Linux ARM in client_hello. Spotifree fork patch.
         "ios" => match ARCH {
-            "aarch64" => Platform::PLATFORM_IPHONE_ARM64,
-            _ => Platform::PLATFORM_IPHONE_ARM,
+            "arm" | "aarch64" => Platform::PLATFORM_LINUX_ARM,
+            _ => Platform::PLATFORM_LINUX_X86,
         },
         "linux" => match ARCH {
             "arm" | "aarch64" => Platform::PLATFORM_LINUX_ARM,
