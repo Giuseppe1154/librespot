@@ -44,6 +44,13 @@ use crate::{
     Error,
 };
 
+// Spotifree fork: records how far the session got into a file the host app reads back, so a crash that
+// the app's Mach exception handler swallows (no POSIX signal reaches our handler) can still be located.
+// Diagnostic only; cheap enough at packet rates.
+fn sg_stage(name: &str) {
+    let _ = std::fs::write(std::env::temp_dir().join("sgdl_stage.txt"), name);
+}
+
 #[derive(Debug, Error)]
 pub enum SessionError {
     #[error(transparent)]
@@ -254,6 +261,7 @@ impl Session {
             .set(tx_connection)
             .map_err(|_| SessionError::NotConnected)?;
 
+        sg_stage("ls:authenticated");
         let (sink, stream) = transport.split();
         let sender_task = UnboundedReceiverStream::new(rx_connection)
             .map(Ok)
@@ -270,8 +278,10 @@ impl Session {
             }
         });
 
+        sg_stage("ls:spawn_dispatch");
         tokio::spawn(DispatchTask::new(self.weak(), stream));
 
+        sg_stage("ls:connected");
         Ok(())
     }
 
@@ -589,6 +599,9 @@ where
         use KeepAliveState::*;
         use PacketType::*;
 
+        // Spotifree fork: which packet is being handled, so a crash in here names its type.
+        sg_stage(&format!("ls:pkt:{cmd:02x}:len{}", data.len()));
+
         let packet_type = FromPrimitive::from_u8(cmd);
         let cmd = match packet_type {
             Some(cmd) => cmd,
@@ -611,7 +624,15 @@ where
                     .reset(TokioInstant::now() + PONG_DELAY);
                 this.keep_alive_state.debug(&this.timeout);
 
-                let server_timestamp = BigEndian::read_u32(data.as_ref()) as i64;
+                // Spotifree fork: a Ping whose payload is shorter than four bytes made read_u32 panic,
+                // and a panic here cannot unwind out of the host app cleanly — it took the whole app
+                // down. Treat a short payload as "no timestamp" instead.
+                let server_timestamp = if data.len() >= 4 {
+                    BigEndian::read_u32(data.as_ref()) as i64
+                } else {
+                    warn!("Ping payload is {} bytes, no server timestamp", data.len());
+                    0
+                };
                 let timestamp = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .unwrap_or(Duration::ZERO)
