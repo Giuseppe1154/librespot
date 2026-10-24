@@ -680,6 +680,9 @@ where
                 let mut user_attributes: UserAttributes = HashMap::new();
 
                 loop {
+                    // Spotifree fork: read_event_into appends, so the buffer has to be cleared each
+                    // round or it grows without bound.
+                    buf.clear();
                     match reader.read_event_into(&mut buf) {
                         Ok(Event::Start(ref element)) => {
                             std::str::from_utf8(element)?.clone_into(&mut current_element)
@@ -695,11 +698,17 @@ where
                         }
                         Ok(Event::Eof) => break,
                         Ok(_) => (),
-                        Err(e) => warn!(
-                            "Error parsing XML at position {}: {:?}",
-                            reader.buffer_position(),
-                            e
-                        ),
+                        // Spotifree fork: stop on a parse error. Carrying on re-read the same failing
+                        // position forever, and with the buffer growing each round the process ran out
+                        // of memory within a second and the OS killed it (no catchable signal).
+                        Err(e) => {
+                            warn!(
+                                "Error parsing XML at position {}: {:?}",
+                                reader.buffer_position(),
+                                e
+                            );
+                            break;
+                        }
                     }
                 }
 
@@ -740,9 +749,19 @@ where
         loop {
             match self.as_mut().project().stream.try_poll_next(cx) {
                 Poll::Ready(Some(Ok((cmd, data)))) => {
-                    let result = self.as_mut().dispatch(&session, cmd, data);
-                    if let Err(e) = result {
-                        debug!("could not dispatch command: {}", e);
+                    // Spotifree fork: this future runs inside a host app, where a panic cannot unwind
+                    // out cleanly — it would take the whole app down. Contain it per packet and keep
+                    // the session running.
+                    let dispatched = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        self.as_mut().dispatch(&session, cmd, data)
+                    }));
+                    match dispatched {
+                        Ok(Ok(())) => (),
+                        Ok(Err(e)) => debug!("could not dispatch command: {}", e),
+                        Err(_) => {
+                            sg_stage(&format!("ls:pkt_panic:{cmd:02x}"));
+                            error!("panic while dispatching packet {cmd:02x}, ignored");
+                        }
                     }
                 }
                 Poll::Ready(None) => {
