@@ -155,6 +155,22 @@ impl Login5Manager {
 
     /// Retrieve the access_token via login5
     ///
+    /// Spotifree fork: seed the cached auth token with one obtained outside librespot — the host
+    /// app's own access token. `auth_token` below then returns it straight from the cache, so the
+    /// login5 exchange never runs. That exchange is denied for us (INVALID_CREDENTIALS) for exactly
+    /// the reason its own doc comment gives: our stored credentials come from the app's client-id,
+    /// not keymaster's.
+    pub fn set_auth_token(&self, access_token: String, expires_in_secs: u64) {
+        let token = Token {
+            access_token,
+            expires_in: Duration::from_secs(expires_in_secs),
+            token_type: String::from("Bearer"),
+            scopes: vec![],
+            timestamp: Instant::now(),
+        };
+        self.lock(|inner| inner.auth_token = Some(token));
+    }
+
     /// This request will only work when the store credentials match the client-id. Meaning that
     /// stored credentials generated with the keymaster client-id will not work, for example, with
     /// the android client-id.
