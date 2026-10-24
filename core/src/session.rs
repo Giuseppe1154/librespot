@@ -590,6 +590,7 @@ where
         }
     }
 
+    #[allow(unreachable_code)]
     fn dispatch(
         mut self: Pin<&mut Self>,
         session: &Session,
@@ -672,6 +673,13 @@ where
                 session.mercury().dispatch(cmd, data)
             }
             Some(ProductInfo) => {
+                // Spotifree fork: handling this packet (the account attributes XML) killed the host
+                // app — the device located the crash here (ls:pkt:50) and it is not a panic, so
+                // containing it was not enough. Nothing in the download path reads these attributes,
+                // so the packet is skipped. The original handling is kept below but unreachable.
+                sg_stage("ls:pkt:50:skipped");
+                return Ok(());
+
                 let data = std::str::from_utf8(&data)?;
                 let mut reader = quick_xml::Reader::from_str(data);
 
