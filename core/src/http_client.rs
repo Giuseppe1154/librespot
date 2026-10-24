@@ -145,8 +145,10 @@ impl HttpClient {
 
     fn try_create_hyper_client(proxy_url: Option<&Url>) -> Result<HyperClient, Error> {
         // configuring TLS is expensive and should be done once per process
+        // Spotifree fork: compiled-in root CAs. iOS exposes no system PEM store, so with_native_roots()
+        // returned an empty store and every request failed with "no active root CA certificates found".
         let https_connector = HttpsConnectorBuilder::new()
-            .with_native_roots()?
+            .with_webpki_roots()
             .https_or_http()
             .enable_http1()
             .enable_http2()
